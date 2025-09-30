@@ -1,27 +1,28 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../database/prisma.service';
 import * as bcrypt from 'bcrypt';
-
-import { PrismaService } from '../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { ConfirmResetDto } from './dto/confirm-reset.dto';
+import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
-    private usersService: UsersService,
     private jwtService: JwtService,
-    private configService: ConfigService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: {
+        sbu: true,
+      },
+    });
+
     if (user && await bcrypt.compare(password, user.password)) {
-      const { password, ...result } = user;
+      const { password: _, ...result } = user;
       return result;
     }
     return null;
@@ -38,51 +39,50 @@ export class AuthService {
     }
 
     const payload = { 
-      sub: user.id, 
       email: user.email, 
+      sub: user.id, 
       role: user.role,
-      sbuId: user.sbuId 
+      sbuId: user.sbuId,
     };
 
     return {
       access_token: this.jwtService.sign(payload),
-      refresh_token: this.jwtService.sign(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
+      refresh_token: this.jwtService.sign(payload, { 
+        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' 
       }),
       user: {
         id: user.id,
-        email: user.email,
         name: user.name,
+        email: user.email,
         role: user.role,
-        sbuId: user.sbuId,
+        sbu: user.sbu,
       },
     };
   }
 
   async refreshToken(refreshToken: string) {
     try {
-      const payload = this.jwtService.verify(refreshToken, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      const payload = this.jwtService.verify(refreshToken);
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        include: { sbu: true },
       });
 
-      const user = await this.usersService.findById(payload.sub);
       if (!user || user.status !== 'ACTIVE') {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
       const newPayload = { 
-        sub: user.id, 
         email: user.email, 
+        sub: user.id, 
         role: user.role,
-        sbuId: user.sbuId 
+        sbuId: user.sbuId,
       };
 
       return {
         access_token: this.jwtService.sign(newPayload),
-        refresh_token: this.jwtService.sign(newPayload, {
-          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-          expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
+        refresh_token: this.jwtService.sign(newPayload, { 
+          expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' 
         }),
       };
     } catch (error) {
@@ -90,18 +90,20 @@ export class AuthService {
     }
   }
 
-  async requestPasswordReset(resetDto: ResetPasswordDto) {
-    const user = await this.usersService.findByEmail(resetDto.email);
+  async requestPasswordReset(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
     if (!user) {
       // Don't reveal if user exists
       return { message: 'If the email exists, a reset link has been sent' };
     }
 
-    // Generate OTP
+    // Generate OTP (6 digits)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Store OTP in database (in production, use Redis)
+    
+    // Store OTP in database (in production, use Redis with TTL)
     await this.prisma.user.update({
       where: { id: user.id },
       data: { 
@@ -110,22 +112,24 @@ export class AuthService {
       },
     });
 
-    // Send OTP via email/SMS
-    // This would be implemented with notification service
-    console.log(`OTP for ${user.email}: ${otp}`);
+    // TODO: Send OTP via email/SMS
+    console.log(`Password reset OTP for ${email}: ${otp}`);
 
     return { message: 'If the email exists, a reset link has been sent' };
   }
 
-  async confirmPasswordReset(confirmDto: ConfirmResetDto) {
-    const { email, otp, newPassword } = confirmDto;
+  async confirmPasswordReset(resetDto: ResetPasswordDto) {
+    const { email, otp, newPassword } = resetDto;
 
-    // Verify OTP (in production, check against stored hash)
+    // In production, verify OTP from Redis
     // For now, we'll skip OTP verification
 
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
     if (!user) {
-      throw new BadRequestException('Invalid email');
+      throw new BadRequestException('Invalid email or OTP');
     }
 
     // Check if new password is different from current
@@ -134,13 +138,20 @@ export class AuthService {
       throw new BadRequestException('New password must be different from current password');
     }
 
-    // Update password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
+
     await this.prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
     });
 
     return { message: 'Password reset successfully' };
+  }
+
+  async getUserById(id: string) {
+    return this.prisma.user.findUnique({
+      where: { id },
+      include: { sbu: true },
+    });
   }
 }

@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Param, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-
+import { Controller, Get, Post, Param, Body, UseGuards, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('Notifications')
 @Controller('notifications')
@@ -13,22 +13,30 @@ export class NotificationsController {
 
   @Get()
   @ApiOperation({ summary: 'Get user notifications' })
-  @ApiResponse({ status: 200, description: 'Notifications retrieved successfully' })
-  findAll(@Request() req) {
-    return this.notificationsService.findAll(req.user.id);
+  async getUserNotifications(
+    @CurrentUser() user: any,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    return this.notificationsService.getUserNotifications(
+      user.sub,
+      limit || 50,
+      offset || 0,
+    );
   }
 
   @Post(':id/read')
   @ApiOperation({ summary: 'Mark notification as read' })
-  @ApiResponse({ status: 200, description: 'Notification marked as read' })
-  markAsRead(@Param('id') id: string, @Request() req) {
-    return this.notificationsService.markAsRead(id, req.user.id);
+  async markAsRead(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.notificationsService.markAsRead(id, user.sub);
   }
 
   @Post('read-all')
   @ApiOperation({ summary: 'Mark all notifications as read' })
-  @ApiResponse({ status: 200, description: 'All notifications marked as read' })
-  markAllAsRead(@Request() req) {
-    return this.notificationsService.markAllAsRead(req.user.id);
+  async markAllAsRead(@CurrentUser() user: any) {
+    return this.notificationsService.markAllAsRead(user.sub);
   }
 }

@@ -2,27 +2,27 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY pnpm-lock.yaml ./
-
 # Install pnpm
 RUN npm install -g pnpm
 
+# Copy package files
+COPY package.json pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Copy source code
-COPY . .
+COPY apps/api ./apps/api
 
 # Generate Prisma client
-RUN pnpm prisma generate
+RUN cd apps/api && pnpm prisma generate
 
 # Build the application
-RUN pnpm build
+RUN cd apps/api && pnpm build
 
 # Expose port
 EXPOSE 3001
 
 # Start the application
-CMD ["pnpm", "start:prod"]
+CMD ["node", "apps/api/dist/main.js"]
