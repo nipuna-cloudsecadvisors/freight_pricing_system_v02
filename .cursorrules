@@ -1,0 +1,12 @@
+Product rules:
+- Scope is EXPORT ONLY (Sea & Air). Do NOT add import workflows.
+- Enforce SRS invariants:
+  * Pre-defined rates grouped by Region→Trade Lane; validity highlights (expired red; expiring in 7 days yellow).
+  * Sales can request rate updates on expired rates; notify all Pricing (system/email/SMS) and the assigned member.
+  * Rate Request fields exactly as listed; if vessel_required=true, responses must include Vessel, ETA, ETD. Multiple response lines allowed.
+  * Sea Export default POL=Colombo. Reference number must be generated for every rate request.
+  * If equipment type = Flat Rack/Open Top, pallet dims required.
+  * Admin: OTP password reset (cannot equal current password); global table search; dashboard export to JPEG; new customers require Admin approval.
+- RBAC: ADMIN, SBU_HEAD, SALES (SP), CSE, PRICING, MGMT.
+- Coding: TypeScript strict, ESLint+Prettier, DTO validation, small cohesive commits.
+- Testing: e2e for POL default, vessel-required validation, single selected quote, cancel requires reason.
